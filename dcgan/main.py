@@ -31,6 +31,7 @@ parser.add_argument('--ngpu'  , type=int, default=1, help='number of GPUs to use
 parser.add_argument('--netG', default='', help="path to netG (to continue training)")
 parser.add_argument('--netD', default='', help="path to netD (to continue training)")
 parser.add_argument('--outf', default='.', help='folder to output images and model checkpoints')
+parser.add_argument('--checkpoints', type=int, default=0, help='how many checkpoints to keep, 0 to keep all')
 
 opt = parser.parse_args()
 print(opt)
@@ -242,6 +243,11 @@ for epoch in range(opt.niter):
             fake = netG(fixed_noise)
             vutils.save_image(fake.data,
                     '%s/fake_samples_epoch_%03d.png' % (opt.outf, epoch))
+
+    # remove older checkpoints
+    for net in ['netG', 'netD']:
+        if os.path.exists('%s/%s_epoch_%d.pth' % (opt.outf, net, epoch - opt.checkpoints)):
+            os.remove('%s/%s_epoch_%d.pth' % (opt.outf, net, epoch - opt.checkpoints))
 
     # do checkpointing
     torch.save(netG.state_dict(), '%s/netG_epoch_%d.pth' % (opt.outf, epoch))
