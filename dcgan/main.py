@@ -1,5 +1,6 @@
 from __future__ import print_function
 import argparse
+import math
 import os
 import random
 import torch
@@ -84,6 +85,7 @@ nz = int(opt.nz)
 ngf = int(opt.ngf)
 ndf = int(opt.ndf)
 nc = 3
+scale = int(math.log2(opt.imageSize) - math.log2(64))
 
 # custom weights initialization called on netG and netD
 def weights_init(m):
@@ -98,10 +100,10 @@ class _netG(nn.Module):
     def __init__(self, ngpu):
         super(_netG, self).__init__()
         self.ngpu = ngpu
-        self.main = nn.Sequential(
+        layers = [
             # input is Z, going into a convolution
-            nn.ConvTranspose2d(     nz, ngf * 8, 4, 1, 0, bias=False),
-            nn.BatchNorm2d(ngf * 8),
+            nn.ConvTranspose2d(nz, ngf * 8 * 2 ** scale, 4, 1, 0, bias=False),
+            nn.BatchNorm2d(ngf * 8 * 2 ** scale),
             nn.ReLU(True),
             # state size. (ngf*8) x 4 x 4
             nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False),
@@ -112,14 +114,25 @@ class _netG(nn.Module):
             nn.BatchNorm2d(ngf * 2),
             nn.ReLU(True),
             # state size. (ngf*2) x 16 x 16
-            nn.ConvTranspose2d(ngf * 2,     ngf, 4, 2, 1, bias=False),
+            nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=False),
             nn.BatchNorm2d(ngf),
             nn.ReLU(True),
             # state size. (ngf) x 32 x 32
-            nn.ConvTranspose2d(    ngf,      nc, 4, 2, 1, bias=False),
+            nn.ConvTranspose2d(ngf, nc, 4, 2, 1, bias=False),
             nn.Tanh()
             # state size. (nc) x 64 x 64
-        )
+        ]
+        # Add additional layers to "expand" for images larger than 64x64
+        for n in range(1, scale + 1):
+            in_f = ngf * 8 * 2 ** n
+            out_f = in_f // 2
+            additional_layers = [
+                nn.ConvTranspose2d(in_f, out_f, 4, 2, 1, bias=False),
+                nn.BatchNorm2d(out_f),
+                nn.ReLU(True),
+            ]
+            layers = layers[:3] + additional_layers + layers[3:]
+        self.main = nn.Sequential(*layers)
     def forward(self, input):
         gpu_ids = None
         if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
@@ -136,7 +149,7 @@ class _netD(nn.Module):
     def __init__(self, ngpu):
         super(_netD, self).__init__()
         self.ngpu = ngpu
-        self.main = nn.Sequential(
+        layers = [
             # input is (nc) x 64 x 64
             nn.Conv2d(nc, ndf, 4, 2, 1, bias=False),
             nn.LeakyReLU(0.2, inplace=True),
@@ -153,9 +166,20 @@ class _netD(nn.Module):
             nn.BatchNorm2d(ndf * 8),
             nn.LeakyReLU(0.2, inplace=True),
             # state size. (ndf*8) x 4 x 4
-            nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=False),
+            nn.Conv2d(ndf * 8 * 2 ** scale, 1, 4, 1, 0, bias=False),
             nn.Sigmoid()
-        )
+        ]
+        # Add additional layers to "compress" images larger than 64x64
+        for n in range(scale):
+            in_f = ndf * 8 * 2 ** n
+            out_f = in_f * 2
+            additional_layers = [
+                nn.Conv2d(in_f, out_f, 4, 2, 1, bias=False),
+                nn.BatchNorm2d(out_f),
+                nn.LeakyReLU(0.2, inplace=True)
+            ]
+            layers = layers[:-2] + additional_layers + layers[-2:]
+        self.main = nn.Sequential(*layers)
     def forward(self, input):
         gpu_ids = None
         if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
