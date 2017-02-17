@@ -266,7 +266,7 @@ for epoch in range(opt.niter):
                     '%s/real_samples.png' % opt.outf)
             fake = netG(fixed_noise)
             vutils.save_image(fake.data,
-                    '%s/fake_samples_epoch_%03d.png' % (opt.outf, epoch))
+                    '%s/fake_samples_epoch_%04d.png' % (opt.outf, epoch))
 
     # remove older checkpoints
     for net in ['netG', 'netD']:
